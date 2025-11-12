@@ -1,4 +1,3 @@
-# main.py
 
 import os
 import numpy as np
@@ -8,18 +7,20 @@ import plotly.express as px
 
 from filters import apply_time_entry_filters
 
+
 # ----------------------------
 # CONFIG: where the Excel files live
 # ----------------------------
-DATA_DIR = "10.31.25 (AI)"   # folder in your GitHub repo
 
-# Filenames INSIDE that folder (change if your names differ)
+DATA_DIR = "Files"   # <-- matches your repo
+
 TIME_ENTRY_FILES = [
     "Time Entry Prep File (10.31).xlsx",
     "Time Entry Prep File (10.31) - FY25.xlsx",
 ]
 INVOICE_FILE = "Invoice Prep File (10.31).xlsx"
 PAYMENT_FILE = "Payment Prep File (10.31).xlsx"
+
 
 # ----------------------------
 # Basic password protection
@@ -75,11 +76,11 @@ def load_time_entries() -> pd.DataFrame:
         except FileNotFoundError:
             continue
 
+        # Some of your prep files have the "real" header in the first row
         if (
             "ELIMINATED BILLING ORIGINATORS AND ALL Non-Billable Hours"
             in df_raw.columns
         ):
-            # Header row lives in the first row of data
             header_row = df_raw.iloc[0]
             df = df_raw[1:].copy()
             df.columns = header_row
@@ -152,7 +153,7 @@ def load_payment_prep() -> pd.DataFrame:
     except FileNotFoundError:
         return pd.DataFrame()
 
-    # Header row seems to be row index 1 for this file
+    # In your payment prep file, the real header is row index 1
     header_row = df_raw.iloc[1]
     df = df_raw[2:].copy()
     df.columns = header_row
@@ -340,7 +341,7 @@ def main():
     if time_df.empty:
         st.error(
             "Could not load Time Entry prep files. "
-            "Check that they exist inside the folder '10.31.25 (AI)'."
+            "Check that they exist inside the 'Files' folder."
         )
         st.stop()
 
@@ -553,3 +554,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
