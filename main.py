@@ -355,62 +355,80 @@ def load_time_entries() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(show_spinner=True, ttl=3600)
+@st.cache_data(show_spinner=False, ttl=3600)
 def load_invoice_prep() -> pd.DataFrame:
-    """Load Invoice Prep file."""
+    """Load Invoice Prep file with progress indication."""
     path = os.path.join(DATA_DIR, INVOICE_FILE)
-    try:
-        df = pd.read_excel(path, engine="openpyxl")
-    except FileNotFoundError:
+    
+    if not os.path.exists(path):
         return pd.DataFrame()
+    
+    # Show loading message with time estimate
+    file_size_mb = os.path.getsize(path) / (1024 * 1024)
+    estimated_seconds = int(file_size_mb * 3)  # Invoice files load faster than time entries
+    
+    with st.spinner(f"Loading Invoice data ({file_size_mb:.1f} MB) - ~{estimated_seconds} seconds..."):
+        try:
+            df = pd.read_excel(path, engine="openpyxl")
+        except FileNotFoundError:
+            return pd.DataFrame()
 
-    date_cols = ["Invoice Date", "Invoice_Creation_Date"]
-    for col in date_cols:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
+        date_cols = ["Invoice Date", "Invoice_Creation_Date"]
+        for col in date_cols:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors="coerce")
 
-    for col in [
-        "Original Inv. Total",
-        "Orig Labor Total",
-        "Orig Expense Total",
-        "Net Labor Billings",
-        "Net Expense Billings",
-    ]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+        for col in [
+            "Original Inv. Total",
+            "Orig Labor Total",
+            "Orig Expense Total",
+            "Net Labor Billings",
+            "Net Expense Billings",
+        ]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df
 
 
-@st.cache_data(show_spinner=True, ttl=3600)
+@st.cache_data(show_spinner=False, ttl=3600)
 def load_payment_prep() -> pd.DataFrame:
-    """Load Payment Prep file."""
+    """Load Payment Prep file with progress indication."""
     path = os.path.join(DATA_DIR, PAYMENT_FILE)
-    try:
-        df_raw = pd.read_excel(path, engine="openpyxl")
-    except FileNotFoundError:
+    
+    if not os.path.exists(path):
         return pd.DataFrame()
+    
+    # Show loading message with time estimate
+    file_size_mb = os.path.getsize(path) / (1024 * 1024)
+    estimated_seconds = int(file_size_mb * 3)  # Payment files typically smaller
+    
+    with st.spinner(f"Loading Payment data ({file_size_mb:.1f} MB) - ~{estimated_seconds} seconds..."):
+        try:
+            df_raw = pd.read_excel(path, engine="openpyxl")
+        except FileNotFoundError:
+            return pd.DataFrame()
 
-    header_row = df_raw.iloc[1]
-    df = df_raw[2:].copy()
-    df.columns = header_row
+        header_row = df_raw.iloc[1]
+        df = df_raw[2:].copy()
+        df.columns = header_row
 
-    date_cols = ["Invoice\nor\nPayment\nDate", "Payment\nApplied Date", "Payment_Date"]
-    for col in date_cols:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
+        date_cols = ["Invoice\nor\nPayment\nDate", "Payment\nApplied Date", "Payment_Date"]
+        for col in date_cols:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors="coerce")
 
-    numeric_cols = [
-        "Payment_Applied_To_User_Amount_in_Original_Currency",
-        "Payment_Applied_To_User_Amount_in_USD",
-        "Payments_Applied_to_Labor_in_Orig_Currency",
-        "Payments_Applied_to_Expense_in_Orig_Currency",
-        "Payments_Applied_to_Labor_in_USD",
-        "Payments_Applied_to_Expense_in_USD",
-    ]
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+        numeric_cols = [
+            "Payment_Applied_To_User_Amount_in_Original_Currency",
+            "Payment_Applied_To_User_Amount_in_USD",
+            "Payments_Applied_to_Labor_in_Orig_Currency",
+            "Payments_Applied_to_Expense_in_Orig_Currency",
+            "Payments_Applied_to_Labor_in_USD",
+            "Payments_Applied_to_Expense_in_USD",
+        ]
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df
 
@@ -739,38 +757,64 @@ def generate_comprehensive_insights(filtered_time: pd.DataFrame, monthly_long: p
 # ----------------------------
 
 def show_executive_dashboard(filtered_time, monthly_long, total_amount, flat_amount, hourly_amount, total_hours):
-    """Executive Dashboard page."""
-    st.header("🎯 Executive Dashboard")
+    """Executive Dashboard page with beautiful layout."""
     
-    # Top KPIs
+    # Header with icon
+    st.markdown("# 🎯 Executive Dashboard")
+    st.markdown("---")
+    
+    # Top KPIs with better styling
+    st.markdown("### 📊 Key Performance Indicators")
+    
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
-        st.metric("💵 Total Revenue", f"${total_amount:,.0f}")
+        st.metric(
+            label="💵 Total Revenue",
+            value=f"${total_amount:,.0f}",
+            help="Total billable amount in USD"
+        )
     
     with col2:
         flat_pct = (flat_amount / total_amount * 100) if total_amount > 0 else 0
-        st.metric("🔧 Alt Fee Revenue", f"${flat_amount:,.0f}", delta=f"{flat_pct:.1f}%")
+        st.metric(
+            label="🔧 Alt Fee Revenue",
+            value=f"${flat_amount:,.0f}",
+            delta=f"{flat_pct:.1f}% of total",
+            help="Alternative/flat fee revenue"
+        )
     
     with col3:
-        st.metric("⏱️ Hourly Revenue", f"${hourly_amount:,.0f}")
+        st.metric(
+            label="⏱️ Hourly Revenue",
+            value=f"${hourly_amount:,.0f}",
+            help="Traditional hourly billing revenue"
+        )
     
     with col4:
         avg_rate = (hourly_amount / total_hours) if total_hours > 0 else 0
-        st.metric("💲 Avg Hourly Rate", f"${avg_rate:.0f}")
+        st.metric(
+            label="💲 Avg Hourly Rate",
+            value=f"${avg_rate:.0f}",
+            help="Average effective hourly rate"
+        )
     
     with col5:
-        st.metric("🕐 Total Hours", f"{total_hours:,.0f}")
+        st.metric(
+            label="🕐 Total Hours",
+            value=f"{total_hours:,.0f}",
+            help="Total billable hours"
+        )
     
     st.markdown("---")
     
-    # Revenue trend with moving averages
+    # Revenue trend section with better layout
     if not monthly_long.empty:
+        st.markdown("### 📈 Revenue Trends & Analysis")
+        
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            st.subheader("📊 Revenue Trend & Moving Averages")
-            
             monthly_total = monthly_long.groupby("YearMonth")["Billable_Amount_in_USD"].sum().reset_index()
             growth_data = calculate_growth_metrics(monthly_total)
             
@@ -785,6 +829,7 @@ def show_executive_dashboard(filtered_time, monthly_long, total_amount, flat_amo
                     name="Actual Revenue",
                     mode="lines+markers",
                     line=dict(color="#1f77b4", width=3),
+                    marker=dict(size=8),
                 ))
                 
                 fig.add_trace(go.Scatter(
@@ -802,21 +847,35 @@ def show_executive_dashboard(filtered_time, monthly_long, total_amount, flat_amo
                 ))
                 
                 fig.update_layout(
+                    title="Revenue Trend with Moving Averages",
                     xaxis_title="",
                     yaxis_title="Revenue (USD)",
                     hovermode="x unified",
                     height=400,
+                    template="plotly_white",
                 )
                 
                 st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            st.subheader("📈 Growth Metrics")
+            st.markdown("#### 📊 Growth Metrics")
             
             if growth_data and growth_data.get("latest_mom") is not None:
-                st.metric("Latest MoM Growth", f"{growth_data['latest_mom']:.1f}%")
-                st.metric("Avg MoM Growth", f"{growth_data['avg_mom']:.1f}%")
-                st.metric("Volatility (Std Dev)", f"{growth_data['volatility']:.1f}%")
+                latest_mom = growth_data['latest_mom']
+                avg_mom = growth_data['avg_mom']
+                volatility = growth_data['volatility']
+                
+                # Color-code growth
+                mom_delta = f"{latest_mom:+.1f}%"
+                
+                st.metric(
+                    "Latest MoM Growth",
+                    f"{abs(latest_mom):.1f}%",
+                    delta=mom_delta,
+                    delta_color="normal" if latest_mom >= 0 else "inverse"
+                )
+                st.metric("Avg MoM Growth", f"{avg_mom:.1f}%")
+                st.metric("Volatility", f"{volatility:.1f}%")
             
             # Quick stats
             if len(monthly_total) >= 2:
@@ -825,25 +884,34 @@ def show_executive_dashboard(filtered_time, monthly_long, total_amount, flat_amo
                 change = ((latest - previous) / previous * 100) if previous > 0 else 0
                 
                 st.markdown("---")
-                st.markdown("**Recent Performance:**")
-                st.write(f"Current Month: ${latest:,.0f}")
-                st.write(f"Previous Month: ${previous:,.0f}")
-                st.write(f"Change: {change:+.1f}%")
+                st.markdown("#### 🔍 Recent Performance")
+                
+                st.markdown(f"""
+                **Current Month:** ${latest:,.0f}  
+                **Previous Month:** ${previous:,.0f}  
+                **Change:** {change:+.1f}%
+                """)
     
     st.markdown("---")
     
-    # Comprehensive insights
-    st.subheader("💡 Key Insights & Recommendations")
+    # Comprehensive insights section
+    st.markdown("### 💡 Key Insights & Recommendations")
+    
     insights = generate_comprehensive_insights(filtered_time, monthly_long)
-    st.markdown(insights)
+    
+    # Put insights in an expander for cleaner look
+    with st.expander("📊 View Detailed Analysis", expanded=True):
+        st.markdown(insights)
 
 
 def show_revenue_analytics(filtered_time, monthly_long):
-    """Revenue Analytics page."""
-    st.header("📈 Revenue Analytics")
+    """Revenue Analytics page with clean layout."""
+    st.markdown("# 📈 Revenue Analytics")
+    st.markdown("Comprehensive revenue analysis with growth metrics and statistical insights")
+    st.markdown("---")
     
     if monthly_long.empty:
-        st.warning("No data available for the selected filters.")
+        st.warning("⚠️ No data available for the selected filters. Please adjust your filter criteria.")
         return
     
     # Monthly revenue breakdown
@@ -852,21 +920,27 @@ def show_revenue_analytics(filtered_time, monthly_long):
         "Billable_Hours": "sum",
     }).reset_index()
     
+    st.markdown("### 💰 Monthly Performance")
+    
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("💰 Monthly Revenue")
         fig = px.bar(
             monthly_total,
             x="YearMonth",
             y="Billable_Amount_in_USD",
             title="Monthly Revenue Trend",
+            color_discrete_sequence=["#1f77b4"],
         )
-        fig.update_layout(xaxis_title="", yaxis_title="Revenue (USD)")
+        fig.update_layout(
+            xaxis_title="",
+            yaxis_title="Revenue (USD)",
+            template="plotly_white",
+            hovermode="x"
+        )
         st.plotly_chart(fig, use_container_width=True)
     
     with col2:
-        st.subheader("⏱️ Monthly Hours")
         fig = px.bar(
             monthly_total,
             x="YearMonth",
@@ -874,12 +948,17 @@ def show_revenue_analytics(filtered_time, monthly_long):
             title="Monthly Billable Hours",
             color_discrete_sequence=["#2ca02c"],
         )
-        fig.update_layout(xaxis_title="", yaxis_title="Hours")
+        fig.update_layout(
+            xaxis_title="",
+            yaxis_title="Hours",
+            template="plotly_white",
+            hovermode="x"
+        )
         st.plotly_chart(fig, use_container_width=True)
     
     # Growth analysis
     st.markdown("---")
-    st.subheader("📊 Growth Analysis")
+    st.markdown("### 📊 Growth Analysis")
     
     growth_data = calculate_growth_metrics(monthly_total)
     
@@ -888,11 +967,13 @@ def show_revenue_analytics(filtered_time, monthly_long):
         
         fig = go.Figure()
         
+        colors = ['#2ca02c' if x >= 0 else '#d62728' for x in df_growth["MoM_Growth"]]
+        
         fig.add_trace(go.Bar(
             x=df_growth["YearMonth"],
             y=df_growth["MoM_Growth"],
             name="MoM Growth %",
-            marker_color=np.where(df_growth["MoM_Growth"] >= 0, "#2ca02c", "#d62728"),
+            marker_color=colors,
         ))
         
         fig.update_layout(
@@ -900,72 +981,81 @@ def show_revenue_analytics(filtered_time, monthly_long):
             xaxis_title="",
             yaxis_title="Growth %",
             hovermode="x",
+            template="plotly_white",
         )
         
         st.plotly_chart(fig, use_container_width=True)
     
     # Revenue distribution
     st.markdown("---")
-    st.subheader("📦 Revenue Distribution")
+    st.markdown("### 📦 Revenue Distribution Analysis")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        # Box plot
         fig = px.box(
             monthly_total,
             y="Billable_Amount_in_USD",
             title="Revenue Distribution (Box Plot)",
+            color_discrete_sequence=["#9467bd"],
         )
+        fig.update_layout(template="plotly_white")
         st.plotly_chart(fig, use_container_width=True)
     
     with col2:
-        # Histogram
         fig = px.histogram(
             monthly_total,
             x="Billable_Amount_in_USD",
             title="Revenue Frequency Distribution",
             nbins=20,
+            color_discrete_sequence=["#ff7f0e"],
+        )
+        fig.update_layout(
+            xaxis_title="Revenue (USD)",
+            yaxis_title="Frequency",
+            template="plotly_white"
         )
         st.plotly_chart(fig, use_container_width=True)
     
     # Statistical summary
     st.markdown("---")
-    st.subheader("📊 Statistical Summary")
+    st.markdown("### 📊 Statistical Summary")
     
     col1, col2, col3, col4 = st.columns(4)
     
     revenue_series = monthly_total["Billable_Amount_in_USD"]
     
     with col1:
-        st.metric("Mean Revenue", f"${revenue_series.mean():,.0f}")
-        st.metric("Std Deviation", f"${revenue_series.std():,.0f}")
+        st.metric("📊 Mean Revenue", f"${revenue_series.mean():,.0f}")
+        st.metric("📉 Std Deviation", f"${revenue_series.std():,.0f}")
     
     with col2:
-        st.metric("Median Revenue", f"${revenue_series.median():,.0f}")
-        st.metric("Min Revenue", f"${revenue_series.min():,.0f}")
+        st.metric("📈 Median Revenue", f"${revenue_series.median():,.0f}")
+        st.metric("⬇️ Min Revenue", f"${revenue_series.min():,.0f}")
     
     with col3:
-        st.metric("Max Revenue", f"${revenue_series.max():,.0f}")
-        st.metric("Range", f"${revenue_series.max() - revenue_series.min():,.0f}")
+        st.metric("⬆️ Max Revenue", f"${revenue_series.max():,.0f}")
+        st.metric("↔️ Range", f"${revenue_series.max() - revenue_series.min():,.0f}")
     
     with col4:
         q1 = revenue_series.quantile(0.25)
         q3 = revenue_series.quantile(0.75)
-        st.metric("Q1 (25th percentile)", f"${q1:,.0f}")
-        st.metric("Q3 (75th percentile)", f"${q3:,.0f}")
+        st.metric("📊 Q1 (25th %ile)", f"${q1:,.0f}")
+        st.metric("📊 Q3 (75th %ile)", f"${q3:,.0f}")
 
 
 def show_billing_mix(filtered_time, monthly_long):
-    """Billing Mix & Trends page."""
-    st.header("💰 Billing Mix & Trends")
+    """Billing Mix & Trends page with improved layout."""
+    st.markdown("# 💰 Billing Mix & Trends")
+    st.markdown("Analyze revenue by billing type and track trends over time")
+    st.markdown("---")
     
     if monthly_long.empty:
-        st.warning("No data available for the selected filters.")
+        st.warning("⚠️ No data available for the selected filters.")
         return
     
     # Stacked area chart
-    st.subheader("📊 Revenue Mix Over Time")
+    st.markdown("### 📊 Revenue Mix Over Time")
     
     pivot_data = monthly_long.pivot(
         index="YearMonth",
@@ -982,21 +1072,21 @@ def show_billing_mix(filtered_time, monthly_long):
             name=column,
             mode="lines",
             stackgroup="one",
-            fillmode="tonexty",
         ))
     
     fig.update_layout(
         xaxis_title="",
         yaxis_title="Revenue (USD)",
         hovermode="x unified",
-        height=400,
+        height=450,
+        template="plotly_white",
     )
     
     st.plotly_chart(fig, use_container_width=True)
     
     # Percentage breakdown
     st.markdown("---")
-    st.subheader("📈 Revenue Mix Percentage")
+    st.markdown("### 📈 Revenue Mix Percentage Breakdown")
     
     pivot_pct = pivot_data.div(pivot_data.sum(axis=1), axis=0) * 100
     
@@ -1016,13 +1106,14 @@ def show_billing_mix(filtered_time, monthly_long):
         yaxis_title="Percentage of Revenue",
         hovermode="x unified",
         height=400,
+        template="plotly_white",
     )
     
     st.plotly_chart(fig, use_container_width=True)
     
     # Rate type analysis
     st.markdown("---")
-    st.subheader("💼 Rate Type Analysis")
+    st.markdown("### 💼 Detailed Rate Type Analysis")
     
     rate_metrics = calculate_rate_type_metrics(filtered_time)
     
@@ -1030,29 +1121,45 @@ def show_billing_mix(filtered_time, monthly_long):
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            # Pie chart
             rate_stats = rate_metrics["rate_stats"]
             fig = px.pie(
                 values=rate_stats["Total_Revenue"],
                 names=rate_stats.index,
                 title="Revenue Distribution by Rate Type",
+                color_discrete_sequence=px.colors.qualitative.Set3,
             )
+            fig.update_layout(template="plotly_white")
             st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            # Bar chart
             fig = px.bar(
                 rate_stats.reset_index(),
                 x="Rate_Type",
                 y="Total_Revenue",
                 title="Total Revenue by Rate Type",
                 color="Rate_Type",
+                color_discrete_sequence=px.colors.qualitative.Set3,
             )
-            fig.update_layout(xaxis_title="", yaxis_title="Revenue (USD)", showlegend=False)
+            fig.update_layout(
+                xaxis_title="",
+                yaxis_title="Revenue (USD)",
+                showlegend=False,
+                template="plotly_white"
+            )
             st.plotly_chart(fig, use_container_width=True)
         
         # Detailed table
-        st.dataframe(rate_stats, use_container_width=True)
+        st.markdown("### 📋 Rate Type Metrics Table")
+        st.dataframe(
+            rate_stats.style.format({
+                "Total_Revenue": "${:,.0f}",
+                "Avg_Revenue": "${:,.0f}",
+                "Count": "{:,.0f}",
+                "Total_Hours": "{:,.1f}",
+                "Revenue_Share_Pct": "{:.2f}%",
+            }),
+            use_container_width=True
+        )
 
 
 def show_forecasting(monthly_long):
