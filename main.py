@@ -28,35 +28,39 @@ PAYMENT_FILE = "Payment Prep File (10.31).xlsx"
 
 
 # ----------------------------
-# Basic password protection with session persistence
+# Password removed for easier access
+# If you want to add password protection, uncomment the code below
 # ----------------------------
 
-PASSWORD = "TrendsAI2025"
+# PASSWORD = "YourPasswordHere"
 
+# def check_password() -> bool:
+#     """Simple password gate using session_state with persistence."""
+#     if st.session_state.get("password_correct", False):
+#         return True
+#     
+#     def password_entered():
+#         if st.session_state.get("password") == PASSWORD:
+#             st.session_state["password_correct"] = True
+#             del st.session_state["password"]
+#         else:
+#             st.session_state["password_correct"] = False
+#
+#     st.text_input(
+#         "Enter password",
+#         type="password",
+#         on_change=password_entered,
+#         key="password",
+#     )
+#     
+#     if st.session_state.get("password_correct") == False:
+#         st.error("❌ Incorrect password.")
+#     
+#     return False
 
 def check_password() -> bool:
-    """Simple password gate using session_state with persistence."""
-    if st.session_state.get("password_correct", False):
-        return True
-    
-    def password_entered():
-        if st.session_state.get("password") == PASSWORD:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-
-    st.text_input(
-        "Enter password",
-        type="password",
-        on_change=password_entered,
-        key="password",
-    )
-    
-    if st.session_state.get("password_correct") == False:
-        st.error("❌ Incorrect password.")
-    
-    return False
+    """Password disabled - direct access."""
+    return True
 
 
 # ----------------------------
@@ -140,26 +144,47 @@ def load_time_entries() -> pd.DataFrame:
     
     # Estimate time: ~5 seconds per MB
     estimated_time = int(total_size_mb * 5)
+    estimated_minutes = estimated_time // 60
+    estimated_seconds = estimated_time % 60
+    
+    if estimated_minutes > 0:
+        time_display = f"{estimated_minutes}m {estimated_seconds}s"
+    else:
+        time_display = f"{estimated_seconds} seconds"
     
     status_text.markdown(f"""
-    ### 📊 Initial Data Processing
+    # ⏱️ Please Wait - Initial Setup in Progress
+    
+    ---
+    
+    ### 📊 What's Happening?
+    
+    Converting your Excel files into an ultra-fast database format.
     
     **Files to process:** {len(file_info)}  
     **Total size:** {total_size_mb:.1f} MB  
-    **Estimated time:** ~{estimated_time} seconds ({estimated_time//60}m {estimated_time%60}s)
+    **Estimated time:** ~{time_display}  
     
     ---
     
-    ### 🚀 Why DuckDB?
+    ### ⚡ Why This Takes Time
     
-    ✨ **10-50x faster** subsequent loads (<1 sec vs 30+ sec)  
-    💾 **2-5x better compression** (smaller storage)  
-    ⚡ **Instant filtering** without loading full dataset  
-    🎯 **Optimized for analytics** (columnar storage)
+    - Reading large Excel files is slow (Excel format is complex)
+    - Building optimized database with indexes
+    - Compressing data for faster future access
     
     ---
     
-    💡 **This only happens once!** Future loads will be nearly instant.
+    ### 🎯 What You Get After This
+    
+    ✅ **10-50x faster loading** (from {estimated_time}s to <1 second!)  
+    ✅ **Smaller storage** (2-5x compression)  
+    ✅ **Instant filtering** without reloading data  
+    ✅ **This only happens once!**
+    
+    ---
+    
+    💡 **Pro Tip:** Grab a coffee ☕ - You'll see detailed progress below...
     """)
     
     start_time = time.time()
@@ -288,25 +313,39 @@ def load_time_entries() -> pd.DataFrame:
         total_time = time.time() - start_time
         
         status_text.markdown(f"""
-        ### ✅ DuckDB Database Ready!
+        # ✅ Setup Complete! 🎉
+        
+        ---
+        
+        ### Database Successfully Built
         
         **Records:** {len(df):,}  
-        **Original size:** {total_size_mb:.1f} MB  
+        **Original Excel size:** {total_size_mb:.1f} MB  
         **Database size:** {db_size_mb:.1f} MB  
-        **Compression:** {compression_ratio:.1f}x  
+        **Compression:** {compression_ratio:.1f}x smaller  
         **Build time:** {total_time:.1f} seconds  
         
         ---
         
-        ### 🎉 All Set!
+        ### ⚡ You're All Set!
         
-        Future loads will take **<1 second** (vs {total_time:.0f}s)  
-        That's **{total_time:.0f}x faster!** ⚡
+        **What just happened?**  
+        Your Excel files were converted into an ultra-fast database that's optimized for analytics.
+        
+        **What happens next?**  
+        - ✅ This setup **never needs to run again**
+        - ✅ Every future load takes **less than 1 second**
+        - ✅ That's **{total_time:.0f}x faster** than today!
+        
+        **Ready to go!** The dashboard will load in 3 seconds...
         """)
         
         time.sleep(3)  # Let user see success message
         progress_bar.empty()
         status_text.empty()
+        
+        # Show final success banner
+        st.success(f"🎉 Database ready! Loaded {len(df):,} records in {total_time:.1f}s. Future loads will be instant!")
         
     except Exception as e:
         st.error(f"❌ Error creating DuckDB database: {str(e)}")
@@ -406,34 +445,6 @@ def calculate_growth_metrics(df: pd.DataFrame) -> dict:
         "avg_mom": df["MoM_Growth"].mean(),
         "volatility": df["MoM_Growth"].std(),
     }
-
-
-def calculate_realization_rates(time_df: pd.DataFrame, invoice_df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate realization rates (billed vs collected)."""
-    if time_df.empty or invoice_df.empty:
-        return pd.DataFrame()
-    
-    # Group by month
-    time_monthly = time_df.groupby(
-        pd.to_datetime(time_df["Date_of_Work"]).dt.to_period("M")
-    )["Billable_Amount_in_USD"].sum()
-    
-    invoice_monthly = invoice_df.groupby(
-        pd.to_datetime(invoice_df["Invoice Date"]).dt.to_period("M")
-    )["Net Labor Billings"].sum()
-    
-    combined = pd.DataFrame({
-        "Time_Billed": time_monthly,
-        "Invoice_Amount": invoice_monthly
-    }).fillna(0)
-    
-    combined["Realization_Rate"] = np.where(
-        combined["Time_Billed"] > 0,
-        (combined["Invoice_Amount"] / combined["Time_Billed"]) * 100,
-        0
-    )
-    
-    return combined.reset_index()
 
 
 def analyze_attorney_productivity(df: pd.DataFrame) -> pd.DataFrame:
@@ -721,8 +732,11 @@ def generate_comprehensive_insights(filtered_time: pd.DataFrame, monthly_long: p
     return "\n".join(insights)
 
 
-# Import all the page functions from the previous file
-# (I'll include the full implementation inline to keep it complete)
+
+
+# ----------------------------
+# Page Functions
+# ----------------------------
 
 def show_executive_dashboard(filtered_time, monthly_long, total_amount, flat_amount, hourly_amount, total_hours):
     """Executive Dashboard page."""
@@ -824,51 +838,737 @@ def show_executive_dashboard(filtered_time, monthly_long, total_amount, flat_amo
     st.markdown(insights)
 
 
-# [Continue with all other page functions - show_revenue_analytics, show_billing_mix, etc.]
-# Due to length, I'll note that all the page functions from the previous implementation should be included here
-# The code would be identical to what was in the original main.py file
-
-
 def show_revenue_analytics(filtered_time, monthly_long):
-    """Revenue Analytics page - implementation same as before."""
+    """Revenue Analytics page."""
     st.header("📈 Revenue Analytics")
-    st.info("Revenue analytics visualization would go here - same as previous implementation")
+    
+    if monthly_long.empty:
+        st.warning("No data available for the selected filters.")
+        return
+    
+    # Monthly revenue breakdown
+    monthly_total = monthly_long.groupby("YearMonth").agg({
+        "Billable_Amount_in_USD": "sum",
+        "Billable_Hours": "sum",
+    }).reset_index()
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("💰 Monthly Revenue")
+        fig = px.bar(
+            monthly_total,
+            x="YearMonth",
+            y="Billable_Amount_in_USD",
+            title="Monthly Revenue Trend",
+        )
+        fig.update_layout(xaxis_title="", yaxis_title="Revenue (USD)")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        st.subheader("⏱️ Monthly Hours")
+        fig = px.bar(
+            monthly_total,
+            x="YearMonth",
+            y="Billable_Hours",
+            title="Monthly Billable Hours",
+            color_discrete_sequence=["#2ca02c"],
+        )
+        fig.update_layout(xaxis_title="", yaxis_title="Hours")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Growth analysis
+    st.markdown("---")
+    st.subheader("📊 Growth Analysis")
+    
+    growth_data = calculate_growth_metrics(monthly_total)
+    
+    if growth_data and "data" in growth_data:
+        df_growth = growth_data["data"]
+        
+        fig = go.Figure()
+        
+        fig.add_trace(go.Bar(
+            x=df_growth["YearMonth"],
+            y=df_growth["MoM_Growth"],
+            name="MoM Growth %",
+            marker_color=np.where(df_growth["MoM_Growth"] >= 0, "#2ca02c", "#d62728"),
+        ))
+        
+        fig.update_layout(
+            title="Month-over-Month Growth Rate",
+            xaxis_title="",
+            yaxis_title="Growth %",
+            hovermode="x",
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Revenue distribution
+    st.markdown("---")
+    st.subheader("📦 Revenue Distribution")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Box plot
+        fig = px.box(
+            monthly_total,
+            y="Billable_Amount_in_USD",
+            title="Revenue Distribution (Box Plot)",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        # Histogram
+        fig = px.histogram(
+            monthly_total,
+            x="Billable_Amount_in_USD",
+            title="Revenue Frequency Distribution",
+            nbins=20,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Statistical summary
+    st.markdown("---")
+    st.subheader("📊 Statistical Summary")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    revenue_series = monthly_total["Billable_Amount_in_USD"]
+    
+    with col1:
+        st.metric("Mean Revenue", f"${revenue_series.mean():,.0f}")
+        st.metric("Std Deviation", f"${revenue_series.std():,.0f}")
+    
+    with col2:
+        st.metric("Median Revenue", f"${revenue_series.median():,.0f}")
+        st.metric("Min Revenue", f"${revenue_series.min():,.0f}")
+    
+    with col3:
+        st.metric("Max Revenue", f"${revenue_series.max():,.0f}")
+        st.metric("Range", f"${revenue_series.max() - revenue_series.min():,.0f}")
+    
+    with col4:
+        q1 = revenue_series.quantile(0.25)
+        q3 = revenue_series.quantile(0.75)
+        st.metric("Q1 (25th percentile)", f"${q1:,.0f}")
+        st.metric("Q3 (75th percentile)", f"${q3:,.0f}")
 
 
 def show_billing_mix(filtered_time, monthly_long):
-    """Billing Mix page."""
+    """Billing Mix & Trends page."""
     st.header("💰 Billing Mix & Trends")
-    st.info("Billing mix visualization would go here")
+    
+    if monthly_long.empty:
+        st.warning("No data available for the selected filters.")
+        return
+    
+    # Stacked area chart
+    st.subheader("📊 Revenue Mix Over Time")
+    
+    pivot_data = monthly_long.pivot(
+        index="YearMonth",
+        columns="Rate_Type",
+        values="Billable_Amount_in_USD"
+    ).fillna(0)
+    
+    fig = go.Figure()
+    
+    for column in pivot_data.columns:
+        fig.add_trace(go.Scatter(
+            x=pivot_data.index,
+            y=pivot_data[column],
+            name=column,
+            mode="lines",
+            stackgroup="one",
+            fillmode="tonexty",
+        ))
+    
+    fig.update_layout(
+        xaxis_title="",
+        yaxis_title="Revenue (USD)",
+        hovermode="x unified",
+        height=400,
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Percentage breakdown
+    st.markdown("---")
+    st.subheader("📈 Revenue Mix Percentage")
+    
+    pivot_pct = pivot_data.div(pivot_data.sum(axis=1), axis=0) * 100
+    
+    fig = go.Figure()
+    
+    for column in pivot_pct.columns:
+        fig.add_trace(go.Scatter(
+            x=pivot_pct.index,
+            y=pivot_pct[column],
+            name=column,
+            mode="lines",
+            stackgroup="one",
+        ))
+    
+    fig.update_layout(
+        xaxis_title="",
+        yaxis_title="Percentage of Revenue",
+        hovermode="x unified",
+        height=400,
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Rate type analysis
+    st.markdown("---")
+    st.subheader("💼 Rate Type Analysis")
+    
+    rate_metrics = calculate_rate_type_metrics(filtered_time)
+    
+    if rate_metrics:
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            # Pie chart
+            rate_stats = rate_metrics["rate_stats"]
+            fig = px.pie(
+                values=rate_stats["Total_Revenue"],
+                names=rate_stats.index,
+                title="Revenue Distribution by Rate Type",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            # Bar chart
+            fig = px.bar(
+                rate_stats.reset_index(),
+                x="Rate_Type",
+                y="Total_Revenue",
+                title="Total Revenue by Rate Type",
+                color="Rate_Type",
+            )
+            fig.update_layout(xaxis_title="", yaxis_title="Revenue (USD)", showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Detailed table
+        st.dataframe(rate_stats, use_container_width=True)
 
 
 def show_forecasting(monthly_long):
-    """Forecasting page."""
+    """Forecasting & Projections page."""
     st.header("🔮 Forecasting & Projections")
-    st.info("Forecasting visualization would go here")
+    
+    if monthly_long.empty:
+        st.warning("Insufficient data for forecasting.")
+        return
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col2:
+        months_ahead = st.slider("Months to Forecast", 1, 12, 3)
+        forecast_method = st.selectbox(
+            "Forecast Method",
+            ["linear", "exponential", "moving_average"],
+            format_func=lambda x: x.replace("_", " ").title()
+        )
+    
+    with col1:
+        st.subheader("📈 Total Revenue Forecast")
+        
+        monthly_total = (
+            monthly_long.groupby("YearMonth")["Billable_Amount_in_USD"]
+            .sum()
+            .sort_index()
+        )
+        
+        forecast_result = advanced_forecast(monthly_total, periods=months_ahead, method=forecast_method)
+        
+        if not forecast_result["forecast"].empty:
+            fig = go.Figure()
+            
+            # Historical data
+            fig.add_trace(go.Scatter(
+                x=monthly_total.index,
+                y=monthly_total.values,
+                name="Actual",
+                mode="lines+markers",
+                line=dict(color="#1f77b4", width=3),
+            ))
+            
+            # Forecast
+            fig.add_trace(go.Scatter(
+                x=forecast_result["forecast"].index,
+                y=forecast_result["forecast"].values,
+                name="Forecast",
+                mode="lines+markers",
+                line=dict(color="#ff7f0e", width=3, dash="dash"),
+            ))
+            
+            # Confidence interval
+            fig.add_trace(go.Scatter(
+                x=forecast_result["upper"].index,
+                y=forecast_result["upper"].values,
+                name="Upper Bound (95%)",
+                mode="lines",
+                line=dict(width=0),
+                showlegend=True,
+            ))
+            
+            fig.add_trace(go.Scatter(
+                x=forecast_result["lower"].index,
+                y=forecast_result["lower"].values,
+                name="Lower Bound (95%)",
+                mode="lines",
+                line=dict(width=0),
+                fillcolor="rgba(255, 127, 14, 0.2)",
+                fill="tonexty",
+                showlegend=True,
+            ))
+            
+            fig.update_layout(
+                xaxis_title="",
+                yaxis_title="Revenue (USD)",
+                hovermode="x unified",
+                height=500,
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Forecast summary
+            st.markdown("---")
+            st.subheader("📊 Forecast Summary")
+            
+            forecast_df = pd.DataFrame({
+                "Month": forecast_result["forecast"].index.strftime("%b %Y"),
+                "Forecasted Revenue": forecast_result["forecast"].values,
+                "Lower Bound": forecast_result["lower"].values,
+                "Upper Bound": forecast_result["upper"].values,
+            })
+            
+            st.dataframe(
+                forecast_df.style.format({
+                    "Forecasted Revenue": "${:,.0f}",
+                    "Lower Bound": "${:,.0f}",
+                    "Upper Bound": "${:,.0f}",
+                }),
+                use_container_width=True
+            )
+    
+    # Forecast by rate type
+    st.markdown("---")
+    st.subheader("💼 Forecast by Rate Type")
+    
+    pivot = (
+        monthly_long
+        .pivot(index="YearMonth", columns="Rate_Type", values="Billable_Amount_in_USD")
+        .fillna(0)
+        .sort_index()
+    )
+    
+    for rate_type in pivot.columns:
+        with st.expander(f"📊 {rate_type} Forecast"):
+            series = pivot[rate_type]
+            fc_result = advanced_forecast(series, periods=months_ahead, method=forecast_method)
+            
+            if not fc_result["forecast"].empty:
+                fig = go.Figure()
+                
+                fig.add_trace(go.Scatter(
+                    x=series.index,
+                    y=series.values,
+                    name="Actual",
+                    mode="lines+markers",
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=fc_result["forecast"].index,
+                    y=fc_result["forecast"].values,
+                    name="Forecast",
+                    mode="lines+markers",
+                    line=dict(dash="dash"),
+                ))
+                
+                fig.update_layout(
+                    xaxis_title="",
+                    yaxis_title="Revenue (USD)",
+                    height=300,
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
 
 
 def show_attorney_performance(filtered_time):
     """Attorney Performance page."""
-    st.header("👥 Attorney Performance")
-    st.info("Attorney performance analytics would go here")
+    st.header("👥 Attorney Performance Analytics")
+    
+    if "Timekeeper" not in filtered_time.columns:
+        st.warning("Timekeeper data not available.")
+        return
+    
+    attorney_stats = analyze_attorney_productivity(filtered_time)
+    
+    if attorney_stats.empty:
+        st.warning("No attorney data available.")
+        return
+    
+    # Top performers
+    st.subheader("🏆 Top Performers by Revenue")
+    
+    top_n = st.slider("Number of attorneys to display", 5, 50, 20)
+    
+    fig = px.bar(
+        attorney_stats.head(top_n),
+        x="Timekeeper",
+        y="Total_Revenue",
+        title=f"Top {top_n} Attorneys by Revenue",
+        color="Effective_Hourly_Rate",
+        color_continuous_scale="Viridis",
+    )
+    fig.update_layout(xaxis_title="", yaxis_title="Total Revenue (USD)")
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Efficiency analysis
+    st.markdown("---")
+    st.subheader("⚡ Efficiency Metrics")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig = px.scatter(
+            attorney_stats.head(top_n),
+            x="Total_Hours",
+            y="Total_Revenue",
+            size="Effective_Hourly_Rate",
+            hover_name="Timekeeper",
+            title="Hours vs Revenue",
+            labels={"Total_Hours": "Total Billable Hours", "Total_Revenue": "Total Revenue (USD)"},
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        fig = px.bar(
+            attorney_stats.head(top_n).sort_values("Effective_Hourly_Rate", ascending=False),
+            x="Timekeeper",
+            y="Effective_Hourly_Rate",
+            title="Effective Hourly Rate",
+            color="Effective_Hourly_Rate",
+            color_continuous_scale="RdYlGn",
+        )
+        fig.update_layout(xaxis_title="", yaxis_title="Effective Rate ($/hr)")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Consistency analysis
+    st.markdown("---")
+    st.subheader("📊 Consistency & Reliability")
+    
+    fig = px.bar(
+        attorney_stats.head(top_n).sort_values("Consistency_Score", ascending=False),
+        x="Timekeeper",
+        y="Consistency_Score",
+        title="Attorney Consistency Score (Higher = More Consistent)",
+        color="Consistency_Score",
+        color_continuous_scale="Blues",
+    )
+    fig.update_layout(xaxis_title="", yaxis_title="Consistency Score")
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Detailed table
+    st.markdown("---")
+    st.subheader("📋 Detailed Performance Metrics")
+    
+    st.dataframe(
+        attorney_stats.head(top_n).style.format({
+            "Total_Hours": "{:,.1f}",
+            "Avg_Hours_Per_Entry": "{:,.2f}",
+            "Std_Hours": "{:,.2f}",
+            "Total_Revenue": "${:,.0f}",
+            "Avg_Revenue_Per_Entry": "${:,.0f}",
+            "Avg_Billing_Rate": "${:,.0f}",
+            "Effective_Hourly_Rate": "${:,.0f}",
+            "Consistency_Score": "{:.1f}",
+        }),
+        use_container_width=True
+    )
 
 
 def show_client_analytics(filtered_time):
     """Client Analytics page."""
     st.header("🏢 Client Analytics")
-    st.info("Client analytics would go here")
+    
+    if "Client_Name" not in filtered_time.columns:
+        st.warning("Client data not available.")
+        return
+    
+    client_analysis = analyze_client_concentration(filtered_time)
+    
+    if not client_analysis:
+        st.warning("No client data available.")
+        return
+    
+    # Concentration metrics
+    st.subheader("📊 Client Concentration Analysis")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Clients", f"{client_analysis['num_clients']:,}")
+    
+    with col2:
+        st.metric("Top 5 Concentration", f"{client_analysis['top_5_concentration']:.1f}%")
+    
+    with col3:
+        st.metric("Top 10 Concentration", f"{client_analysis['top_10_concentration']:.1f}%")
+    
+    with col4:
+        hhi = client_analysis['hhi']
+        if hhi < 1000:
+            risk_level = "Low"
+            color = "green"
+        elif hhi < 1800:
+            risk_level = "Moderate"
+            color = "orange"
+        else:
+            risk_level = "High"
+            color = "red"
+        
+        st.metric("Concentration Risk", risk_level, help=f"HHI: {hhi:.0f}")
+    
+    # Top clients
+    st.markdown("---")
+    st.subheader("🏆 Top Clients by Revenue")
+    
+    top_n_clients = st.slider("Number of clients to display", 5, 50, 20)
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        top_clients = client_analysis['client_revenue'].head(top_n_clients).reset_index()
+        top_clients.columns = ["Client", "Revenue"]
+        
+        fig = px.bar(
+            top_clients,
+            x="Client",
+            y="Revenue",
+            title=f"Top {top_n_clients} Clients",
+            color="Revenue",
+            color_continuous_scale="Blues",
+        )
+        fig.update_layout(xaxis_title="", yaxis_title="Revenue (USD)")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        # Pie chart of top 10
+        top_10 = client_analysis['client_revenue'].head(10)
+        fig = px.pie(
+            values=top_10.values,
+            names=top_10.index,
+            title="Top 10 Client Distribution",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Concentration curve
+    st.markdown("---")
+    st.subheader("📈 Revenue Concentration Curve")
+    
+    cumulative_pct = client_analysis['client_revenue_pct'].cumsum()
+    cumulative_df = pd.DataFrame({
+        "Client_Rank": range(1, len(cumulative_pct) + 1),
+        "Cumulative_Revenue_Pct": cumulative_pct.values
+    })
+    
+    fig = px.line(
+        cumulative_df,
+        x="Client_Rank",
+        y="Cumulative_Revenue_Pct",
+        title="Cumulative Revenue Concentration",
+    )
+    fig.add_hline(y=50, line_dash="dash", line_color="red", annotation_text="50% of Revenue")
+    fig.add_hline(y=80, line_dash="dash", line_color="orange", annotation_text="80% of Revenue")
+    fig.update_layout(xaxis_title="Client Rank", yaxis_title="Cumulative % of Revenue")
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Client details table
+    st.markdown("---")
+    st.subheader("📋 Client Revenue Details")
+    
+    client_detail = pd.DataFrame({
+        "Client": client_analysis['client_revenue'].index,
+        "Revenue": client_analysis['client_revenue'].values,
+        "% of Total": client_analysis['client_revenue_pct'].values,
+    }).head(top_n_clients)
+    
+    st.dataframe(
+        client_detail.style.format({
+            "Revenue": "${:,.0f}",
+            "% of Total": "{:.2f}%",
+        }),
+        use_container_width=True
+    )
 
 
 def show_time_patterns(filtered_time):
-    """Time Patterns page."""
-    st.header("⏰ Time & Patterns")
-    st.info("Time pattern analysis would go here")
+    """Time & Patterns page."""
+    st.header("⏰ Time & Billing Patterns")
+    
+    patterns = analyze_billing_patterns(filtered_time)
+    
+    if not patterns:
+        st.warning("Insufficient data for pattern analysis.")
+        return
+    
+    # Day of week analysis
+    st.subheader("📅 Day of Week Patterns")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if not patterns["day_of_week_revenue"].empty:
+            dow_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            dow_rev = patterns["day_of_week_revenue"].reindex(dow_order, fill_value=0)
+            
+            fig = px.bar(
+                x=dow_rev.index,
+                y=dow_rev.values,
+                title="Revenue by Day of Week",
+                labels={"x": "Day", "y": "Revenue (USD)"},
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        if not patterns["day_of_week_hours"].empty:
+            dow_hours = patterns["day_of_week_hours"].reindex(dow_order, fill_value=0)
+            
+            fig = px.bar(
+                x=dow_hours.index,
+                y=dow_hours.values,
+                title="Billable Hours by Day of Week",
+                labels={"x": "Day", "y": "Hours"},
+                color_discrete_sequence=["#2ca02c"],
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Week of month patterns
+    st.markdown("---")
+    st.subheader("📆 Week of Month Patterns")
+    
+    if not patterns["week_of_month_revenue"].empty:
+        fig = px.bar(
+            x=patterns["week_of_month_revenue"].index,
+            y=patterns["week_of_month_revenue"].values,
+            title="Revenue by Week of Month",
+            labels={"x": "Week", "y": "Revenue (USD)"},
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Heatmap by day and week
+    st.markdown("---")
+    st.subheader("🔥 Activity Heatmap")
+    
+    if "Date_of_Work" in filtered_time.columns:
+        df_heat = filtered_time.copy()
+        df_heat["Date_of_Work"] = pd.to_datetime(df_heat["Date_of_Work"])
+        df_heat["DayOfWeek"] = df_heat["Date_of_Work"].dt.day_name()
+        df_heat["WeekOfYear"] = df_heat["Date_of_Work"].dt.isocalendar().week
+        
+        heatmap_data = df_heat.groupby(["WeekOfYear", "DayOfWeek"])["Billable_Amount_in_USD"].sum().unstack(fill_value=0)
+        
+        if not heatmap_data.empty:
+            dow_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            heatmap_data = heatmap_data.reindex(columns=dow_order, fill_value=0)
+            
+            fig = px.imshow(
+                heatmap_data,
+                title="Revenue Heatmap (Week vs Day)",
+                labels=dict(x="Day of Week", y="Week of Year", color="Revenue"),
+                aspect="auto",
+                color_continuous_scale="YlOrRd",
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
 
 def show_detailed_drilldown(filtered_time):
     """Detailed Drilldown page."""
     st.header("📊 Detailed Drilldown")
-    st.info("Detailed drilldown would go here")
+    
+    dimension = st.selectbox(
+        "Group By Dimension",
+        ["Timekeeper", "Client_Name", "Primary Practice Group", "Rate_Type", "Matter_Name"],
+    )
+    
+    if dimension not in filtered_time.columns:
+        st.warning(f"Column '{dimension}' not available in the data.")
+        return
+    
+    # Aggregation
+    grouped = (
+        filtered_time
+        .groupby(dimension)
+        .agg({
+            "Billable_Amount_in_USD": ["sum", "mean", "count"],
+            "Billable_Hours": ["sum", "mean"],
+        })
+        .round(2)
+    )
+    
+    grouped.columns = [
+        "Total_Revenue", "Avg_Revenue", "Count",
+        "Total_Hours", "Avg_Hours"
+    ]
+    
+    grouped["Effective_Rate"] = (grouped["Total_Revenue"] / grouped["Total_Hours"]).round(2)
+    grouped = grouped.sort_values("Total_Revenue", ascending=False).reset_index()
+    
+    # Display options
+    col1, col2 = st.columns([3, 1])
+    
+    with col2:
+        top_n = st.slider("Display Top N", 5, 100, 25)
+        metric_to_plot = st.selectbox(
+            "Metric to Visualize",
+            ["Total_Revenue", "Total_Hours", "Effective_Rate", "Count"]
+        )
+    
+    with col1:
+        top_data = grouped.head(top_n)
+        
+        fig = px.bar(
+            top_data,
+            x=dimension,
+            y=metric_to_plot,
+            title=f"Top {top_n} by {metric_to_plot.replace('_', ' ')}",
+            color=metric_to_plot,
+            color_continuous_scale="Viridis",
+        )
+        fig.update_layout(xaxis_title="", yaxis_title=metric_to_plot.replace("_", " "))
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Detailed table
+    st.markdown("---")
+    st.subheader("📋 Detailed Breakdown")
+    
+    st.dataframe(
+        top_data.style.format({
+            "Total_Revenue": "${:,.0f}",
+            "Avg_Revenue": "${:,.0f}",
+            "Count": "{:,.0f}",
+            "Total_Hours": "{:,.1f}",
+            "Avg_Hours": "{:.2f}",
+            "Effective_Rate": "${:,.0f}",
+        }),
+        use_container_width=True
+    )
+    
+    # Export option
+    st.markdown("---")
+    if st.button("📥 Export to CSV"):
+        csv = top_data.to_csv(index=False)
+        st.download_button(
+            label="Download CSV",
+            data=csv,
+            file_name=f"{dimension}_analysis.csv",
+            mime="text/csv",
+        )
 
 
 # ----------------------------
@@ -882,11 +1582,24 @@ def main():
         initial_sidebar_state="expanded",
     )
 
-    if not check_password():
-        st.stop()
+    # Removed password requirement for easier access
+    # if not check_password():
+    #     st.stop()
 
     st.title("📊 Attorney Billing & KPI Dashboard")
     st.caption("🚀 Powered by DuckDB Vector Database | Ultra-fast analytics")
+    
+    # Show loading time expectation banner
+    if not os.path.exists(os.path.join(DATA_DIR, "billing_data.duckdb")):
+        st.info("""
+        ⏱️ **First-Time Setup Notice**
+        
+        Since this is your first time running the dashboard, the initial load will take **30-45 seconds** to build an optimized database.
+        
+        **Good news:** After this one-time setup, every future load will take **less than 1 second**! ⚡
+        
+        You'll see detailed progress below as files are processed.
+        """)
 
     # Load data
     time_df = load_time_entries()
