@@ -29,34 +29,7 @@ PAYMENT_FILE = "Payment Prep File (10.31).xlsx"
 
 # ----------------------------
 # Password removed for easier access
-# If you want to add password protection, uncomment the code below
 # ----------------------------
-
-# PASSWORD = "YourPasswordHere"
-
-# def check_password() -> bool:
-#     """Simple password gate using session_state with persistence."""
-#     if st.session_state.get("password_correct", False):
-#         return True
-#     
-#     def password_entered():
-#         if st.session_state.get("password") == PASSWORD:
-#             st.session_state["password_correct"] = True
-#             del st.session_state["password"]
-#         else:
-#             st.session_state["password_correct"] = False
-#
-#     st.text_input(
-#         "Enter password",
-#         type="password",
-#         on_change=password_entered,
-#         key="password",
-#     )
-#     
-#     if st.session_state.get("password_correct") == False:
-#         st.error("❌ Incorrect password.")
-#     
-#     return False
 
 def check_password() -> bool:
     """Password disabled - direct access."""
@@ -248,6 +221,25 @@ def load_time_entries() -> pd.DataFrame:
     progress_bar.progress(0.75)
     
     df = pd.concat(frames, ignore_index=True)
+    
+    # ✅ FIXED: Deduplicate records to fix inflated numbers
+    original_count = len(df)
+    key_cols = ['Date_of_Work', 'Timekeeper', 'Client_Name', 'Billable_Amount_in_USD', 'Billable_Hours']
+    dedup_cols = [col for col in key_cols if col in df.columns]
+    
+    if dedup_cols:
+        df = df.drop_duplicates(subset=dedup_cols, keep='first')
+        duplicates_removed = original_count - len(df)
+        
+        if duplicates_removed > 0:
+            status_text.markdown(f"""
+            ### 🧹 Data Cleaning
+            
+            **Removed {duplicates_removed:,} duplicate records** ({duplicates_removed/original_count*100:.1f}%)
+            
+            This is normal when combining multiple source files with overlapping data.
+            """)
+            progress_bar.progress(0.78)
     
     # Clean and standardize
     status_text.markdown(f"""
@@ -659,8 +651,10 @@ def advanced_forecast(series: pd.Series, periods: int = 3, method: str = "linear
     # Ensure non-negative
     forecast_values = np.maximum(forecast_values, 0)
     
+    # ✅ FIXED: Convert to period before adding
+    last_period = series.index[-1].to_period('M')
     future_index = pd.period_range(
-        start=(series.index[-1] + 1),
+        start=last_period + 1,
         periods=periods,
         freq="M",
     ).to_timestamp()
@@ -1689,10 +1683,6 @@ def main():
         initial_sidebar_state="expanded",
     )
 
-    # Removed password requirement for easier access
-    # if not check_password():
-    #     st.stop()
-
     st.title("📊 Attorney Billing & KPI Dashboard")
     st.caption("🚀 Powered by DuckDB Vector Database | Ultra-fast analytics")
     
@@ -1737,16 +1727,44 @@ def main():
     filtered_time = apply_time_entry_filters(time_df)
     monthly_long = prepare_monthly_time_by_rate(filtered_time)
 
-    # Calculate key metrics
+    # ✅ FIXED: Calculate key metrics with better rate type handling
     if "Rate_Type" in filtered_time.columns:
-        flat_mask = filtered_time["Rate_Type"].str.contains("flat|fixed|alternative", case=False, na=False)
+        # Alternative fee patterns
+        flat_mask = filtered_time["Rate_Type"].str.contains("flat|fixed|alternative|alt", case=False, na=False)
+        # Hourly rate patterns - be explicit
+        hourly_mask = filtered_time["Rate_Type"].str.contains("hourly|standard|regular", case=False, na=False)
     else:
         flat_mask = pd.Series(False, index=filtered_time.index)
+        hourly_mask = pd.Series(False, index=filtered_time.index)
 
     flat_amount = filtered_time.loc[flat_mask, "Billable_Amount_in_USD"].sum()
+    hourly_amount = filtered_time.loc[hourly_mask, "Billable_Amount_in_USD"].sum()
     total_amount = filtered_time["Billable_Amount_in_USD"].sum()
-    hourly_amount = filtered_time.loc[~flat_mask, "Billable_Amount_in_USD"].sum()
     total_hours = filtered_time.get("Billable_Hours", pd.Series(dtype=float)).sum()
+    
+    # ✅ ADDED: Data quality metrics in sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📊 Data Quality Check")
+    
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        st.metric("Total Records", f"{len(filtered_time):,}")
+        st.metric("Flat Fee", f"{flat_mask.sum():,}")
+    with col2:
+        st.metric("Hourly", f"{hourly_mask.sum():,}")
+        other_count = (~flat_mask & ~hourly_mask).sum()
+        st.metric("Other", f"{other_count:,}", 
+                 delta="⚠️" if other_count > 0 else "✓")
+    
+    # Revenue classification check
+    classification_pct = (flat_amount + hourly_amount) / total_amount * 100 if total_amount > 0 else 0
+    st.sidebar.metric("Revenue Classified", f"{classification_pct:.1f}%",
+                     delta="✓" if classification_pct > 95 else "⚠️ Check rate types")
+    
+    # Add diagnostic for unclassified revenue
+    other_amount = total_amount - flat_amount - hourly_amount
+    if other_amount > total_amount * 0.05:  # More than 5% unclassified
+        st.sidebar.warning(f"⚠️ ${other_amount:,.0f} in unclassified revenue")
 
     # Page routing
     if page == "🎯 Executive Dashboard":
