@@ -267,47 +267,42 @@ def load_invoice_prep() -> pd.DataFrame:
         return pd.DataFrame()
     
     parquet_path = get_cached_file_path(INVOICE_FILE)
+    file_size_mb = os.path.getsize(excel_path) / (1024 * 1024)
     
     # Try cache first
     if os.path.exists(parquet_path):
         if os.path.getmtime(parquet_path) > os.path.getmtime(excel_path):
-            with st.spinner("⚡ Loading Invoice data from cache..."):
-                df = pd.read_parquet(parquet_path)
-                st.success(f"✅ Invoice data loaded ({len(df):,} records)")
-                return df
+            start_time = time.time()
+            df = pd.read_parquet(parquet_path)
+            load_time = time.time() - start_time
+            return df
     
     # Load from Excel with progress
-    file_size_mb = os.path.getsize(excel_path) / (1024 * 1024)
+    start_time = time.time()
+    df = pd.read_excel(excel_path, engine="openpyxl")
     
-    with st.spinner(f"📂 Loading Invoice data from Excel ({file_size_mb:.1f} MB)..."):
-        start_time = time.time()
-        df = pd.read_excel(excel_path, engine="openpyxl")
-        
-        date_cols = ["Invoice Date", "Invoice_Creation_Date"]
-        for col in date_cols:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
-        
-        for col in [
-            "Original Inv. Total",
-            "Orig Labor Total",
-            "Orig Expense Total",
-            "Net Labor Billings",
-            "Net Expense Billings",
-        ]:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-        
-        # Cache it - convert object columns to string first
-        df_to_save = df.copy()
-        for col in df_to_save.columns:
-            if df_to_save[col].dtype == 'object':
-                df_to_save[col] = df_to_save[col].astype(str)
-        
-        df_to_save.to_parquet(parquet_path, compression='snappy', index=False)
-        
-        load_time = time.time() - start_time
-        st.success(f"✅ Invoice data loaded & cached ({len(df):,} records in {load_time:.1f}s)")
+    date_cols = ["Invoice Date", "Invoice_Creation_Date"]
+    for col in date_cols:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+    
+    for col in [
+        "Original Inv. Total",
+        "Orig Labor Total",
+        "Orig Expense Total",
+        "Net Labor Billings",
+        "Net Expense Billings",
+    ]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    
+    # Cache it - convert object columns to string first
+    df_to_save = df.copy()
+    for col in df_to_save.columns:
+        if df_to_save[col].dtype == 'object':
+            df_to_save[col] = df_to_save[col].astype(str)
+    
+    df_to_save.to_parquet(parquet_path, compression='snappy', index=False)
     
     return df
 
@@ -325,49 +320,40 @@ def load_payment_prep() -> pd.DataFrame:
     # Try cache first
     if os.path.exists(parquet_path):
         if os.path.getmtime(parquet_path) > os.path.getmtime(excel_path):
-            with st.spinner("⚡ Loading Payment data from cache..."):
-                df = pd.read_parquet(parquet_path)
-                st.success(f"✅ Payment data loaded ({len(df):,} records)")
-                return df
+            df = pd.read_parquet(parquet_path)
+            return df
     
-    # Load from Excel with progress
-    file_size_mb = os.path.getsize(excel_path) / (1024 * 1024)
+    # Load from Excel
+    df_raw = pd.read_excel(excel_path, engine="openpyxl")
     
-    with st.spinner(f"📂 Loading Payment data from Excel ({file_size_mb:.1f} MB)..."):
-        start_time = time.time()
-        df_raw = pd.read_excel(excel_path, engine="openpyxl")
-        
-        header_row = df_raw.iloc[1]
-        df = df_raw[2:].copy()
-        df.columns = header_row
-        
-        date_cols = ["Invoice\nor\nPayment\nDate", "Payment\nApplied Date", "Payment_Date"]
-        for col in date_cols:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
-        
-        numeric_cols = [
-            "Payment_Applied_To_User_Amount_in_Original_Currency",
-            "Payment_Applied_To_User_Amount_in_USD",
-            "Payments_Applied_to_Labor_in_Orig_Currency",
-            "Payments_Applied_to_Expense_in_Orig_Currency",
-            "Payments_Applied_to_Labor_in_USD",
-            "Payments_Applied_to_Expense_in_USD",
-        ]
-        for col in numeric_cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-        
-        # Cache it - convert object columns to string first
-        df_to_save = df.copy()
-        for col in df_to_save.columns:
-            if df_to_save[col].dtype == 'object':
-                df_to_save[col] = df_to_save[col].astype(str)
-        
-        df_to_save.to_parquet(parquet_path, compression='snappy', index=False)
-        
-        load_time = time.time() - start_time
-        st.success(f"✅ Payment data loaded & cached ({len(df):,} records in {load_time:.1f}s)")
+    header_row = df_raw.iloc[1]
+    df = df_raw[2:].copy()
+    df.columns = header_row
+    
+    date_cols = ["Invoice\nor\nPayment\nDate", "Payment\nApplied Date", "Payment_Date"]
+    for col in date_cols:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+    
+    numeric_cols = [
+        "Payment_Applied_To_User_Amount_in_Original_Currency",
+        "Payment_Applied_To_User_Amount_in_USD",
+        "Payments_Applied_to_Labor_in_Orig_Currency",
+        "Payments_Applied_to_Expense_in_Orig_Currency",
+        "Payments_Applied_to_Labor_in_USD",
+        "Payments_Applied_to_Expense_in_USD",
+    ]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    
+    # Cache it - convert object columns to string first
+    df_to_save = df.copy()
+    for col in df_to_save.columns:
+        if df_to_save[col].dtype == 'object':
+            df_to_save[col] = df_to_save[col].astype(str)
+    
+    df_to_save.to_parquet(parquet_path, compression='snappy', index=False)
     
     return df
 
@@ -2099,35 +2085,47 @@ def main():
         with col1:
             st.markdown("**Time Entry Data**")
             time_placeholder = st.empty()
-            time_placeholder.info("🔄 Loading...")
+            time_placeholder.info("🔄 Loading... (est. 30-60s)")
         
         with col2:
             st.markdown("**Invoice Data**")
             invoice_placeholder = st.empty()
-            invoice_placeholder.info("⏳ Waiting...")
+            invoice_placeholder.info("⏳ Waiting... (est. 5-10s)")
         
         with col3:
             st.markdown("**Payment Data**")
             payment_placeholder = st.empty()
-            payment_placeholder.info("⏳ Waiting...")
+            payment_placeholder.info("⏳ Waiting... (est. 5-10s)")
     
     # Load time entries
+    time_start = time.time()
     time_df = load_time_entries()
-    time_placeholder.success(f"✅ Loaded ({len(time_df):,} records)")
+    time_elapsed = time.time() - time_start
+    time_placeholder.success(f"✅ Loaded in {time_elapsed:.1f}s ({len(time_df):,} records)")
     
     # Load invoice data
+    invoice_placeholder.info("🔄 Loading Invoice data...")
+    invoice_start = time.time()
     invoice_df = load_invoice_prep()
+    invoice_elapsed = time.time() - invoice_start
     if not invoice_df.empty:
-        invoice_placeholder.success(f"✅ Loaded ({len(invoice_df):,} records)")
+        invoice_placeholder.success(f"✅ Loaded in {invoice_elapsed:.1f}s ({len(invoice_df):,} records)")
     else:
         invoice_placeholder.warning("⚠️ No data found")
     
     # Load payment data
+    payment_placeholder.info("🔄 Loading Payment data...")
+    payment_start = time.time()
     payment_df = load_payment_prep()
+    payment_elapsed = time.time() - payment_start
     if not payment_df.empty:
-        payment_placeholder.success(f"✅ Loaded ({len(payment_df):,} records)")
+        payment_placeholder.success(f"✅ Loaded in {payment_elapsed:.1f}s ({len(payment_df):,} records)")
     else:
         payment_placeholder.warning("⚠️ No data found")
+    
+    # Show total load time
+    total_time = time_elapsed + invoice_elapsed + payment_elapsed
+    st.success(f"🎉 **All data loaded in {total_time:.1f} seconds!**")
     
     st.markdown("---")
 
@@ -2187,3 +2185,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
