@@ -7,6 +7,8 @@ def apply_time_entry_filters(df: pd.DataFrame) -> pd.DataFrame:
     """
     Apply comprehensive filters to time entry data via sidebar.
     Returns filtered dataframe.
+    
+    DEFAULT: Last Quarter (shows most recent 3 months of data)
     """
     if df.empty:
         return df
@@ -25,28 +27,38 @@ def apply_time_entry_filters(df: pd.DataFrame) -> pd.DataFrame:
         max_date = filtered_df["Date_of_Work"].max()
         
         if pd.notna(min_date) and pd.notna(max_date):
-            # Quick date presets
+            # Quick date presets - DEFAULT TO "LAST QUARTER"
             date_preset = st.sidebar.selectbox(
                 "Date Preset",
                 [
-                    "All Time",
-                    "Last 30 Days",
-                    "Last 90 Days",
+                    "Last Quarter",  # ✅ MOVED TO TOP AS DEFAULT
+                    "This Month",
+                    "Last Month", 
+                    "Last 3 Months",
                     "Last 6 Months",
                     "Last 12 Months",
                     "Year to Date",
                     "This Quarter",
-                    "Last Quarter",
+                    "Fiscal Year (Oct-Sep)",
+                    "Calendar Year",
                     "Custom Range",
-                ]
+                    "All Time",
+                ],
+                index=0,  # ✅ DEFAULT TO FIRST OPTION (Last Quarter)
             )
             
             today = datetime.now()
             
-            if date_preset == "Last 30 Days":
-                start_date = today - timedelta(days=30)
+            if date_preset == "This Month":
+                start_date = datetime(today.year, today.month, 1)
                 end_date = today
-            elif date_preset == "Last 90 Days":
+            elif date_preset == "Last Month":
+                # Get first day of current month, then go back one day
+                first_of_this_month = datetime(today.year, today.month, 1)
+                last_day_of_last_month = first_of_this_month - timedelta(days=1)
+                start_date = datetime(last_day_of_last_month.year, last_day_of_last_month.month, 1)
+                end_date = last_day_of_last_month
+            elif date_preset == "Last 3 Months":
                 start_date = today - timedelta(days=90)
                 end_date = today
             elif date_preset == "Last 6 Months":
@@ -59,21 +71,41 @@ def apply_time_entry_filters(df: pd.DataFrame) -> pd.DataFrame:
                 start_date = datetime(today.year, 1, 1)
                 end_date = today
             elif date_preset == "This Quarter":
+                # Current calendar quarter
                 quarter = (today.month - 1) // 3 + 1
                 start_date = datetime(today.year, 3 * quarter - 2, 1)
                 end_date = today
             elif date_preset == "Last Quarter":
-                quarter = (today.month - 1) // 3
-                if quarter == 0:
-                    quarter = 4
-                    year = today.year - 1
+                # ✅ MOST RECENT COMPLETE QUARTER
+                current_quarter = (today.month - 1) // 3 + 1
+                
+                if current_quarter == 1:
+                    # Currently Q1, so last quarter is Q4 of previous year
+                    start_date = datetime(today.year - 1, 10, 1)
+                    end_date = datetime(today.year - 1, 12, 31)
                 else:
-                    year = today.year
-                start_date = datetime(year, 3 * quarter - 2, 1)
-                if quarter == 4:
-                    end_date = datetime(year, 12, 31)
+                    # Go back one quarter
+                    last_quarter = current_quarter - 1
+                    start_month = 3 * last_quarter - 2
+                    start_date = datetime(today.year, start_month, 1)
+                    
+                    # End of that quarter
+                    if last_quarter == 4:
+                        end_date = datetime(today.year, 12, 31)
+                    else:
+                        next_quarter_start = datetime(today.year, 3 * last_quarter + 1, 1)
+                        end_date = next_quarter_start - timedelta(days=1)
+            elif date_preset == "Fiscal Year (Oct-Sep)":
+                # Law firm fiscal year typically Oct 1 - Sep 30
+                if today.month >= 10:
+                    start_date = datetime(today.year, 10, 1)
+                    end_date = today
                 else:
-                    end_date = datetime(year, 3 * quarter + 1, 1) - timedelta(days=1)
+                    start_date = datetime(today.year - 1, 10, 1)
+                    end_date = today
+            elif date_preset == "Calendar Year":
+                start_date = datetime(today.year, 1, 1)
+                end_date = datetime(today.year, 12, 31)
             elif date_preset == "Custom Range":
                 col1, col2 = st.sidebar.columns(2)
                 with col1:
@@ -101,6 +133,12 @@ def apply_time_entry_filters(df: pd.DataFrame) -> pd.DataFrame:
                 (filtered_df["Date_of_Work"] >= pd.to_datetime(start_date)) &
                 (filtered_df["Date_of_Work"] <= pd.to_datetime(end_date))
             ]
+            
+            # ✅ SHOW DATE RANGE IN NICE FORMAT
+            if date_preset != "All Time":
+                st.sidebar.info(
+                    f"📅 **{start_date.strftime('%B %Y')}** to **{end_date.strftime('%B %Y')}**"
+                )
     
     # Timekeeper filter
     st.sidebar.markdown("### 👤 Timekeeper")
