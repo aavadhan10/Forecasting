@@ -78,9 +78,15 @@ def load_single_file_smart(excel_file):
     
     load_time = time.time() - start
     
-    # Save to Parquet for next time
+    # Save to Parquet for next time - fix mixed type columns
     try:
-        df.to_parquet(parquet_path, compression='snappy', index=False)
+        # Convert object columns to string to avoid Arrow type errors
+        df_to_save = df.copy()
+        for col in df_to_save.columns:
+            if df_to_save[col].dtype == 'object':
+                df_to_save[col] = df_to_save[col].astype(str)
+        
+        df_to_save.to_parquet(parquet_path, compression='snappy', index=False)
     except Exception as e:
         st.warning(f"Could not cache {excel_file}: {e}")
     
@@ -100,22 +106,51 @@ def load_time_entries() -> pd.DataFrame:
     all_cached = all(os.path.exists(get_cached_file_path(f)) for f in TIME_ENTRY_FILES)
     
     if all_cached:
-        # Fast path - all files cached
-        with st.spinner("⚡ Loading from cache..."):
-            frames = []
-            start_time = time.time()
-            
-            for file in TIME_ENTRY_FILES:
-                df = pd.read_parquet(get_cached_file_path(file))
-                frames.append(df)
-            
-            df = pd.concat(frames, ignore_index=True)
-            load_time = time.time() - start_time
+        # Fast path - all files cached with detailed progress
+        st.info("⚡ **Loading from Parquet cache** (this is fast!)")
         
-        st.success(f"✅ Loaded {len(df):,} records from cache in {load_time:.2f} seconds!")
+        progress_bar = st.progress(0)
+        status = st.empty()
+        
+        frames = []
+        start_time = time.time()
+        
+        for idx, file in enumerate(TIME_ENTRY_FILES):
+            file_start = time.time()
+            
+            status.markdown(f"""
+            ### ⚡ Loading from cache: `{file}`
+            
+            **Status:** Reading Parquet file...  
+            **File:** {idx + 1} of {len(TIME_ENTRY_FILES)}
+            """)
+            
+            df = pd.read_parquet(get_cached_file_path(file))
+            frames.append(df)
+            
+            file_time = time.time() - file_start
+            
+            status.markdown(f"""
+            ### ✅ Loaded: `{file}`
+            
+            **Records:** {len(df):,}  
+            **Time:** {file_time:.2f} seconds  
+            **File:** {idx + 1} of {len(TIME_ENTRY_FILES)}
+            """)
+            
+            progress_bar.progress((idx + 1) / len(TIME_ENTRY_FILES))
+            time.sleep(0.3)  # Brief pause so users can see progress
+        
+        df = pd.concat(frames, ignore_index=True)
+        load_time = time.time() - start_time
+        
+        progress_bar.empty()
+        status.empty()
+        
+        st.success(f"✅ **Cache Load Complete!** Loaded {len(df):,} records in {load_time:.2f} seconds!")
         
     else:
-        # Slow path - need to load from Excel
+        # Slow path - need to load from Excel with detailed progress
         st.warning("""
         ⏱️ **First-Time Load**
         
@@ -131,36 +166,73 @@ def load_time_entries() -> pd.DataFrame:
         
         # Load files
         results = []
+        overall_start = time.time()
+        
         for idx, file in enumerate(TIME_ENTRY_FILES):
-            file_size_mb = os.path.getsize(os.path.join(DATA_DIR, file)) / (1024 * 1024)
+            file_path = os.path.join(DATA_DIR, file)
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
             estimated_time = int(file_size_mb * 3)
             
+            # Show pre-load status
             status.markdown(f"""
-            ### 📂 Loading: {file}
+            ### 📂 File {idx + 1} of {len(TIME_ENTRY_FILES)}: `{file}`
+            
             **Size:** {file_size_mb:.1f} MB  
             **Estimated time:** ~{estimated_time} seconds  
-            **Progress:** {idx + 1}/{len(TIME_ENTRY_FILES)}
+            **Status:** 🔄 Starting to read Excel file...
+            
+            ---
+            
+            ⏳ **This may take a while - Excel files are slow to read**
             """)
             
+            progress_bar.progress((idx / len(TIME_ENTRY_FILES)) + 0.1)
+            
+            # Load the file
+            file_start_time = time.time()
             result = load_single_file_smart(file)
+            df_loaded, filename, load_time, source = result
             results.append(result)
             
+            # Show completion status
+            status.markdown(f"""
+            ### ✅ File {idx + 1} of {len(TIME_ENTRY_FILES)}: `{file}`
+            
+            **Records loaded:** {len(df_loaded):,}  
+            **Load time:** {load_time:.1f} seconds  
+            **Status:** ✅ Excel loaded & Parquet cache created!
+            
+            ---
+            
+            💾 **Next time this file loads in <1 second!**
+            """)
+            
             progress_bar.progress((idx + 1) / len(TIME_ENTRY_FILES))
+            time.sleep(0.5)  # Brief pause so users can see completion
         
         progress_bar.empty()
-        status.empty()
+        
+        # Show final combining status
+        status.markdown("""
+        ### 🔄 Finalizing...
+        
+        **Status:** Combining all files into single dataset...
+        """)
         
         frames = [df for df, _, _, _ in results]
         df = pd.concat(frames, ignore_index=True)
         
-        total_time = sum(load_time for _, _, load_time, _ in results)
+        total_time = time.time() - overall_start
+        cache_speedup = int(total_time / 2)
+        
+        status.empty()
         
         st.success(f"""
         ✅ **Initial Load Complete!**
         
         - Loaded {len(df):,} records in {total_time:.1f} seconds
         - Created Parquet caches for future use
-        - Next load will be **{int(total_time / 2)}x faster** (~2 seconds!)
+        - Next load will be **~{cache_speedup}x faster** (~2 seconds!)
         """)
     
     # Data cleaning
@@ -178,12 +250,17 @@ def load_time_entries() -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     
+    # Convert remaining object columns to string to avoid Parquet issues
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].astype(str)
+    
     return df
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def load_invoice_prep() -> pd.DataFrame:
-    """Load Invoice Prep file with Parquet caching."""
+    """Load Invoice Prep file with Parquet caching and status updates."""
     excel_path = os.path.join(DATA_DIR, INVOICE_FILE)
     
     if not os.path.exists(excel_path):
@@ -194,10 +271,16 @@ def load_invoice_prep() -> pd.DataFrame:
     # Try cache first
     if os.path.exists(parquet_path):
         if os.path.getmtime(parquet_path) > os.path.getmtime(excel_path):
-            return pd.read_parquet(parquet_path)
+            with st.spinner("⚡ Loading Invoice data from cache..."):
+                df = pd.read_parquet(parquet_path)
+                st.success(f"✅ Invoice data loaded ({len(df):,} records)")
+                return df
     
-    # Load from Excel
-    with st.spinner("Loading Invoice data..."):
+    # Load from Excel with progress
+    file_size_mb = os.path.getsize(excel_path) / (1024 * 1024)
+    
+    with st.spinner(f"📂 Loading Invoice data from Excel ({file_size_mb:.1f} MB)..."):
+        start_time = time.time()
         df = pd.read_excel(excel_path, engine="openpyxl")
         
         date_cols = ["Invoice Date", "Invoice_Creation_Date"]
@@ -215,15 +298,23 @@ def load_invoice_prep() -> pd.DataFrame:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
         
-        # Cache it
-        df.to_parquet(parquet_path, compression='snappy', index=False)
+        # Cache it - convert object columns to string first
+        df_to_save = df.copy()
+        for col in df_to_save.columns:
+            if df_to_save[col].dtype == 'object':
+                df_to_save[col] = df_to_save[col].astype(str)
+        
+        df_to_save.to_parquet(parquet_path, compression='snappy', index=False)
+        
+        load_time = time.time() - start_time
+        st.success(f"✅ Invoice data loaded & cached ({len(df):,} records in {load_time:.1f}s)")
     
     return df
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def load_payment_prep() -> pd.DataFrame:
-    """Load Payment Prep file with Parquet caching."""
+    """Load Payment Prep file with Parquet caching and status updates."""
     excel_path = os.path.join(DATA_DIR, PAYMENT_FILE)
     
     if not os.path.exists(excel_path):
@@ -234,10 +325,16 @@ def load_payment_prep() -> pd.DataFrame:
     # Try cache first
     if os.path.exists(parquet_path):
         if os.path.getmtime(parquet_path) > os.path.getmtime(excel_path):
-            return pd.read_parquet(parquet_path)
+            with st.spinner("⚡ Loading Payment data from cache..."):
+                df = pd.read_parquet(parquet_path)
+                st.success(f"✅ Payment data loaded ({len(df):,} records)")
+                return df
     
-    # Load from Excel
-    with st.spinner("Loading Payment data..."):
+    # Load from Excel with progress
+    file_size_mb = os.path.getsize(excel_path) / (1024 * 1024)
+    
+    with st.spinner(f"📂 Loading Payment data from Excel ({file_size_mb:.1f} MB)..."):
+        start_time = time.time()
         df_raw = pd.read_excel(excel_path, engine="openpyxl")
         
         header_row = df_raw.iloc[1]
@@ -261,8 +358,16 @@ def load_payment_prep() -> pd.DataFrame:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
         
-        # Cache it
-        df.to_parquet(parquet_path, compression='snappy', index=False)
+        # Cache it - convert object columns to string first
+        df_to_save = df.copy()
+        for col in df_to_save.columns:
+            if df_to_save[col].dtype == 'object':
+                df_to_save[col] = df_to_save[col].astype(str)
+        
+        df_to_save.to_parquet(parquet_path, compression='snappy', index=False)
+        
+        load_time = time.time() - start_time
+        st.success(f"✅ Payment data loaded & cached ({len(df):,} records in {load_time:.1f}s)")
     
     return df
 
@@ -1982,10 +2087,49 @@ def main():
         You'll see detailed progress below as files are processed.
         """)
 
-    # Load data
+    # Create a section for data loading status
+    st.markdown("---")
+    st.markdown("### 📥 Data Loading Status")
+    
+    loading_container = st.container()
+    
+    with loading_container:
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("**Time Entry Data**")
+            time_placeholder = st.empty()
+            time_placeholder.info("🔄 Loading...")
+        
+        with col2:
+            st.markdown("**Invoice Data**")
+            invoice_placeholder = st.empty()
+            invoice_placeholder.info("⏳ Waiting...")
+        
+        with col3:
+            st.markdown("**Payment Data**")
+            payment_placeholder = st.empty()
+            payment_placeholder.info("⏳ Waiting...")
+    
+    # Load time entries
     time_df = load_time_entries()
+    time_placeholder.success(f"✅ Loaded ({len(time_df):,} records)")
+    
+    # Load invoice data
     invoice_df = load_invoice_prep()
+    if not invoice_df.empty:
+        invoice_placeholder.success(f"✅ Loaded ({len(invoice_df):,} records)")
+    else:
+        invoice_placeholder.warning("⚠️ No data found")
+    
+    # Load payment data
     payment_df = load_payment_prep()
+    if not payment_df.empty:
+        payment_placeholder.success(f"✅ Loaded ({len(payment_df):,} records)")
+    else:
+        payment_placeholder.warning("⚠️ No data found")
+    
+    st.markdown("---")
 
     if time_df.empty:
         st.error("Could not load Time Entry prep files. Check that they exist inside the 'Files' folder.")
